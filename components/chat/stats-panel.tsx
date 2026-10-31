@@ -28,15 +28,23 @@ export function StatsPanel({ responses, onSelect }: StatsPanelProps) {
     )
   }
 
-  const input = sum(completed.map((r) => r.metadata?.usage?.inputTokens))
-  const output = sum(completed.map((r) => r.metadata?.usage?.outputTokens))
+  const promptTokens = sum(completed.map((r) => r.metadata?.usage?.inputTokens))
+  const completionTokens = sum(completed.map((r) => r.metadata?.usage?.outputTokens))
+  const totalTokens = sum(
+    completed.map((r) => {
+      const usage = r.metadata?.usage
+      return usage?.totalTokens ?? (usage?.inputTokens ?? 0) + (usage?.outputTokens ?? 0)
+    }),
+  )
   const costs = completed.map((r) => r.metadata?.cost)
   const hasCost = costs.some((c) => c != null)
   const latencies = completed.map(getLatency)
 
   const readouts: [string, string][] = [
     ['requests', formatNumber(completed.length)],
-    ['total tokens', formatNumber(input + output)],
+    ['prompt tokens', formatNumber(promptTokens)],
+    ['completion tokens', formatNumber(completionTokens)],
+    ['total tokens', formatNumber(totalTokens)],
     ['avg latency', formatMs(average(latencies))],
     ['avg ttft', formatMs(average(completed.map((r) => r.metadata?.performance?.timeToFirstOutputMs)))],
     ['avg throughput', formatRate(average(completed.map((r) => r.metadata?.performance?.outputTokensPerSecond)))],
@@ -73,10 +81,10 @@ export function StatsPanel({ responses, onSelect }: StatsPanelProps) {
           </h3>
           <div className="flex items-center gap-3 font-mono text-xs text-muted-foreground">
             <span className="flex items-center gap-1.5">
-              <span className="size-2 rounded-sm bg-foreground/25" aria-hidden="true" /> in
+              <span className="size-2 rounded-sm bg-foreground/25" aria-hidden="true" /> prompt
             </span>
             <span className="flex items-center gap-1.5">
-              <span className="size-2 rounded-sm bg-primary" aria-hidden="true" /> out
+              <span className="size-2 rounded-sm bg-primary" aria-hidden="true" /> completion
             </span>
           </div>
         </div>
@@ -90,7 +98,7 @@ export function StatsPanel({ responses, onSelect }: StatsPanelProps) {
                   type="button"
                   onClick={() => onSelect(r.id)}
                   className="flex w-full items-center gap-3 text-left"
-                  aria-label={`Response ${i + 1}: ${inTok} input, ${outTok} output tokens`}
+                  aria-label={`Response ${i + 1}: ${inTok} prompt, ${outTok} completion tokens`}
                 >
                   <span className="w-6 shrink-0 font-mono text-xs text-muted-foreground">#{i + 1}</span>
                   <span className="flex h-3 flex-1 overflow-hidden rounded-sm bg-secondary">
@@ -104,7 +112,7 @@ export function StatsPanel({ responses, onSelect }: StatsPanelProps) {
           })}
         </ol>
         <p className="font-mono text-xs text-muted-foreground">
-          {formatNumber(input)} in · {formatNumber(output)} out
+          {formatNumber(promptTokens)} prompt · {formatNumber(completionTokens)} completion
         </p>
       </section>
 

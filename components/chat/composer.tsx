@@ -7,14 +7,15 @@ type ComposerProps = {
   onSend: (text: string) => void
   onStop: () => void
   isBusy: boolean
+  canSend: boolean
 }
 
-export function Composer({ onSend, onStop, isBusy }: ComposerProps) {
+export function Composer({ onSend, onStop, isBusy, canSend }: ComposerProps) {
   const [input, setInput] = useState('')
 
   function submit() {
     const text = input.trim()
-    if (!text || isBusy) return
+    if (!text || isBusy || !canSend) return
     onSend(text)
     setInput('')
   }
@@ -41,6 +42,7 @@ export function Composer({ onSend, onStop, isBusy }: ComposerProps) {
         <textarea
           id="prompt"
           value={input}
+          disabled={!canSend}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={handleKeyDown}
           rows={1}
@@ -59,7 +61,7 @@ export function Composer({ onSend, onStop, isBusy }: ComposerProps) {
         ) : (
           <button
             type="submit"
-            disabled={!input.trim()}
+            disabled={!canSend || !input.trim()}
             className="inline-flex size-11 shrink-0 items-center justify-center rounded-md bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-40"
           >
             <ArrowUp className="size-4" aria-hidden="true" />

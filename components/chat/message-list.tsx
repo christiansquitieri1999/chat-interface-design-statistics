@@ -1,8 +1,7 @@
 'use client'
 
-import type { ChatStatus } from 'ai'
 import { useEffect, useRef } from 'react'
-import type { ChatMessage } from '@/lib/chat-types'
+import type { ChatMessage, ChatStatus } from '@/lib/chat-types'
 import { cn } from '@/lib/utils'
 import { formatMs, formatNumber, formatRate, getLatency, getMessageText, modelLabel } from '@/lib/format'
 
@@ -15,12 +14,13 @@ const SUGGESTIONS = [
 type MessageListProps = {
   messages: ChatMessage[]
   status: ChatStatus
+  canSend: boolean
   selectedId: string | null
   onInspect: (id: string) => void
   onSuggestion: (text: string) => void
 }
 
-export function MessageList({ messages, status, selectedId, onInspect, onSuggestion }: MessageListProps) {
+export function MessageList({ messages, status, canSend, selectedId, onInspect, onSuggestion }: MessageListProps) {
   const endRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -43,6 +43,7 @@ export function MessageList({ messages, status, selectedId, onInspect, onSuggest
               <button
                 type="button"
                 onClick={() => onSuggestion(s)}
+                disabled={!canSend}
                 className="w-full rounded-md border border-border bg-card px-4 py-3 text-left text-sm hover:border-primary/50"
               >
                 {s}
@@ -70,18 +71,13 @@ export function MessageList({ messages, status, selectedId, onInspect, onSuggest
             <AssistantMessage
               key={message.id}
               message={message}
+              isWaiting={status === 'submitted' && message.id === lastId}
               isStreaming={status === 'streaming' && message.id === lastId}
               isFailed={status === 'error' && message.id === lastId}
               isSelected={message.id === selectedId}
               onInspect={() => onInspect(message.id)}
             />
           ),
-        )}
-        {status === 'submitted' && (
-          <li className="flex items-center gap-2 font-mono text-xs text-muted-foreground">
-            <span className="size-1.5 animate-pulse rounded-full bg-accent" aria-hidden="true" />
-            waiting for first token…
-          </li>
         )}
       </ol>
       <div ref={endRef} />
@@ -91,12 +87,14 @@ export function MessageList({ messages, status, selectedId, onInspect, onSuggest
 
 function AssistantMessage({
   message,
+  isWaiting,
   isStreaming,
   isFailed,
   isSelected,
   onInspect,
 }: {
   message: ChatMessage
+  isWaiting: boolean
   isStreaming: boolean
   isFailed: boolean
   isSelected: boolean
@@ -118,7 +116,7 @@ function AssistantMessage({
         {isStreaming && <span className="ml-0.5 inline-block h-4 w-1.5 animate-pulse bg-primary align-text-bottom" aria-hidden="true" />}
       </div>
       <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border pt-3">
-        <p className="font-mono text-xs text-muted-foreground">
+        <p className="flex min-h-4 flex-wrap items-center gap-2 font-mono text-xs text-muted-foreground">
           {done ? (
             <>
               {formatMs(getLatency(message))} · {formatNumber(meta?.usage?.totalTokens)} tok ·{' '}
@@ -128,6 +126,11 @@ function AssistantMessage({
             'streaming…'
           ) : isFailed ? (
             <span className="text-destructive">request failed</span>
+          ) : isWaiting ? (
+            <>
+              <span className="size-1.5 animate-pulse rounded-full bg-accent" aria-hidden="true" />
+              thinking...
+            </>
           ) : (
             'stopped'
           )}

@@ -1,16 +1,12 @@
-import type { UIMessage } from 'ai'
-
 export const MODELS = [
-  { id: 'openai/gpt-5.5', label: 'GPT-5.5' },
-  { id: 'openai/gpt-5.4-mini', label: 'GPT-5.4 mini' },
-  { id: 'anthropic/claude-sonnet-5.5', label: 'Claude Sonnet 5.5' },
-  { id: 'anthropic/claude-haiku-5.5', label: 'Claude Haiku 5.5' },
-  { id: 'google/gemini-3.5-flash', label: 'Gemini 3.5 Flash' },
+  { id: 'openai/gpt-oss-120b', label: 'GPT OSS 120B' },
+  { id: 'openai/gpt-oss-20b', label: 'GPT OSS 20B' },
+  { id: 'qwen/qwen3.8-27b', label: 'Qwen 3.8 27B' },
 ] as const
 
 export type ModelId = (typeof MODELS)[number]['id']
 
-export const DEFAULT_MODEL: ModelId = 'openai/gpt-5.4-mini'
+export const DEFAULT_MODEL: ModelId = 'openai/gpt-oss-120b'
 
 export function isModelId(value: unknown): value is ModelId {
   return MODELS.some((m) => m.id === value)
@@ -45,4 +41,11 @@ export type ChatMetadata = {
   providerMetadata?: unknown
 }
 
-export type ChatMessage = UIMessage<ChatMetadata>
+export type ChatMessage = {
+  id: string
+  role: 'user' | 'assistant'
+  parts: { type: 'text'; text: string }[]
+  metadata?: ChatMetadata
+}
+
+export type ChatStatus = 'ready' | 'submitted' | 'streaming' | 'error'

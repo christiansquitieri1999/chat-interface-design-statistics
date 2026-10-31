@@ -1,90 +1,83 @@
-import {
-  convertToModelMessages,
-  createUIMessageStreamResponse,
-  streamText,
-  toUIMessageStream,
-} from 'ai'
-import {
-  DEFAULT_MODEL,
-  isModelId,
-  type ChatMessage,
-  type ChatMetadata,
-} from '@/lib/chat-types'
+import { DEFAULT_MODEL, isModelId } from '@/lib/chat-types'
 
-export const maxDuration = 60
-
-type StepSnapshot = Pick<
-  ChatMetadata,
-  'responseId' | 'responseModelId' | 'responseHeaders' | 'providerMetadata' | 'performance'
->
-
-function readGatewayCost(providerMetadata: unknown): number | undefined {
-  const gateway = (providerMetadata as { gateway?: { cost?: unknown } } | undefined)?.gateway
-  const cost = Number(gateway?.cost)
-  return Number.isFinite(cost) ? cost : undefined
-}
+type ProviderMessage = { role: 'user' | 'assistant'; content: string }
 
 export async function POST(req: Request) {
-  const body: { messages?: ChatMessage[]; model?: unknown } = await req.json()
-  const messages = Array.isArray(body.messages) ? body.messages : []
+  const apiKey = process.env.GROQ_API_KEY ?? process.env.NEXT_PUBLIC_GROQ_API_KEY
+  if (!apiKey) {
+    return Response.json({ error: 'Missing GROQ_API_KEY environment variable.' }, { status: 500 })
+  }
+
+  let payload: unknown
+  try {
+    payload = await req.json()
+  } catch {
+    return Response.json({ error: 'Request body must be valid JSON.' }, { status: 400 })
+  }
+  if (payload == null || typeof payload !== 'object') {
+    return Response.json({ error: 'Request body must be a JSON object.' }, { status: 400 })
+  }
+  const body = payload as { messages?: ProviderMessage[]; model?: unknown }
+
+  const messages = Array.isArray(body.messages)
+    ? body.messages.filter(
+        (message): message is ProviderMessage =>
+          message != null &&
+          (message.role === 'user' || message.role === 'assistant') &&
+          typeof message.content === 'string' &&
+          message.content.length > 0,
+      )
+    : []
+  if (messages.length === 0) {
+    return Response.json({ error: 'At least one valid message is required.' }, { status: 400 })
+  }
+
   const modelId = isModelId(body.model) ? body.model : DEFAULT_MODEL
-  const startedAt = Date.now()
-
-  const result = streamText({
-    model: modelId,
-    instructions: 'You are a helpful, concise assistant.',
-    messages: await convertToModelMessages(messages),
-  })
-
-  let steps = 0
-  let lastStep: StepSnapshot = {}
-
-  return createUIMessageStreamResponse({
-    stream: toUIMessageStream({
-      stream: result.stream,
-      originalMessages: messages,
-      onError: (error) => (error instanceof Error ? error.message : 'An error occurred.'),
-      messageMetadata: ({ part }) => {
-        if (part.type === 'start') {
-          return { createdAt: startedAt, model: modelId }
-        }
-
-        if (part.type === 'finish-step') {
-          steps += 1
-          lastStep = {
-            responseId: part.response.id,
-            responseModelId: part.response.modelId,
-            responseHeaders: part.response.headers,
-            providerMetadata: part.providerMetadata,
-            performance: {
-              timeToFirstOutputMs: part.performance.timeToFirstOutputMs,
-              outputTokensPerSecond: part.performance.outputTokensPerSecond,
-              responseTimeMs: part.performance.responseTimeMs,
-            },
-          }
-          return undefined
-        }
-
-        if (part.type === 'finish') {
-          const usage = part.totalUsage
-          return {
-            ...lastStep,
-            completedAt: Date.now(),
-            finishReason: part.finishReason,
-            steps,
-            cost: readGatewayCost(lastStep.providerMetadata),
-            usage: {
-              inputTokens: usage.inputTokens,
-              outputTokens: usage.outputTokens,
-              totalTokens: usage.totalTokens,
-              reasoningTokens: usage.outputTokenDetails.reasoningTokens,
-              cachedInputTokens: usage.inputTokenDetails.cacheReadTokens,
-            },
-          }
-        }
-
-        return undefined
+  let upstream: Response
+  try {
+    upstream = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
       },
-    }),
+      body: JSON.stringify({
+        model: modelId,
+        messages,
+        stream: true,
+        stream_options: { include_usage: true },
+      }),
+      signal: req.signal,
+    })
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Unable to reach the Groq API.'
+    return Response.json({ error: message }, { status: 502 })
+  }
+
+  if (!upstream.ok) {
+    const details = await upstream.text()
+    let message = `Groq API returned ${upstream.status}.`
+    try {
+      const payload = JSON.parse(details) as { error?: { message?: string } | string }
+      if (typeof payload.error === 'string') message = payload.error
+      else if (payload.error?.message) message = payload.error.message
+    } catch {
+      if (details) message = details
+    }
+    return Response.json({ error: message }, { status: upstream.status })
+  }
+
+  if (!upstream.body) {
+    return Response.json({ error: 'Groq returned an empty response stream.' }, { status: 502 })
+  }
+
+  const headers = new Headers({
+    'Content-Type': upstream.headers.get('content-type') ?? 'text/event-stream; charset=utf-8',
+    'Cache-Control': 'no-cache, no-transform',
+    'X-Accel-Buffering': 'no',
   })
+  const requestId = upstream.headers.get('x-request-id')
+  if (requestId) headers.set('X-Request-Id', requestId)
+
+  return new Response(upstream.body, { headers })
 }
